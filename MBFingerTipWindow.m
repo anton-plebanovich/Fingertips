@@ -120,7 +120,7 @@
                 case UITouchPhaseMoved:
                 case UITouchPhaseStationary:
                 {
-                    MBFingerTipView *touchView = (MBFingerTipView *)[self.window viewWithTag:touch.hash];
+                    MBFingerTipView *touchView = (MBFingerTipView *)[self viewWithTag:touch.hash];
 
                     if (touch.phase != UITouchPhaseStationary && touchView != nil && [touchView isFadingOut])
                     {
@@ -132,14 +132,14 @@
                     if (touchView == nil && touch.phase != UITouchPhaseStationary)
                     {
                         touchView = [[MBFingerTipView alloc] initWithImage:self.touchImage];
-                        [self.window addSubview:touchView];
+                        [self addSubview:touchView];
                         [self.fingerTipViews addObject:touchView];
                     }
             
                     if ( ! [touchView isFadingOut])
                     {
                         touchView.alpha = self.touchAlpha;
-                        touchView.center = [touch locationInView:self.window];
+                        touchView.center = [touch locationInView:self];
                         touchView.tag = touch.hash;
                         touchView.timestamp = touch.timestamp;
                         touchView.shouldAutomaticallyRemoveAfterTimeout = [self shouldAutomaticallyRemoveFingerTipForTouch:touch];
@@ -202,7 +202,7 @@
 
 - (void)removeFingerTipWithHash:(NSUInteger)hash animated:(BOOL)animated;
 {
-    MBFingerTipView *touchView = (MBFingerTipView *)[self.window viewWithTag:hash];
+    MBFingerTipView *touchView = (MBFingerTipView *)[self viewWithTag:hash];
     if ( ! [touchView isKindOfClass:[MBFingerTipView class]])
         return;
     
