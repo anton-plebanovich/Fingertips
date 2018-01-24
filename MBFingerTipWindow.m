@@ -22,25 +22,10 @@
 
 #pragma mark -
 
-@interface MBFingerTipOverlayWindow : UIWindow
-@end
-
-#pragma mark -
-
 @interface MBFingerTipWindow ()
 
-@property (nonatomic, strong) UIWindow *overlayWindow;
-@property (nonatomic, assign) BOOL active;
+@property (nonatomic) NSMutableArray<MBFingerTipView *> *fingerTipViews;
 @property (nonatomic, assign) BOOL fingerTipRemovalScheduled;
-
-- (void)MBFingerTipWindow_commonInit;
-- (BOOL)anyScreenIsMirrored;
-- (void)updateFingertipsAreActive;
-- (void)scheduleFingerTipRemoval;
-- (void)cancelScheduledFingerTipRemoval;
-- (void)removeInactiveFingerTips;
-- (void)removeFingerTipWithHash:(NSUInteger)hash animated:(BOOL)animated;
-- (BOOL)shouldAutomaticallyRemoveFingerTipForTouch:(UITouch *)touch;
 
 @end
 
@@ -76,49 +61,15 @@
 
 - (void)MBFingerTipWindow_commonInit
 {
+    self.fingerTipViews = [NSMutableArray<MBFingerTipView *> new];
     self.strokeColor = [UIColor blackColor];
     self.fillColor = [UIColor whiteColor];
     
     self.touchAlpha   = 0.5;
     self.fadeDuration = 0.3;
-    
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(screenConnect:)
-                                                 name:UIScreenDidConnectNotification
-                                               object:nil];
-    
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(screenDisconnect:)
-                                                 name:UIScreenDidDisconnectNotification
-                                               object:nil];
-
-    // Set up active now, in case the screen was present before the window was created (or application launched).
-    //
-    [self updateFingertipsAreActive];
-}
-
-- (void)dealloc
-{
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:UIScreenDidConnectNotification    object:nil];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:UIScreenDidDisconnectNotification object:nil];
 }
 
 #pragma mark -
-
-- (UIWindow *)overlayWindow
-{
-    if ( ! _overlayWindow)
-    {
-        _overlayWindow = [[MBFingerTipOverlayWindow alloc] initWithFrame:self.frame];
-        
-        _overlayWindow.userInteractionEnabled = NO;
-        _overlayWindow.windowLevel = UIWindowLevelStatusBar;
-        _overlayWindow.backgroundColor = [UIColor clearColor];
-        _overlayWindow.hidden = NO;
-    }
-    
-    return _overlayWindow;
-}
 
 - (UIImage *)touchImage
 {
@@ -152,63 +103,12 @@
     return _touchImage;
 }
 
-#pragma mark - Setter
-
-- (void)setAlwaysShowTouches:(BOOL)flag
-{
-	if (_alwaysShowTouches != flag)
-	{
-		_alwaysShowTouches = flag;
-
-        [self updateFingertipsAreActive];
-	}
-}
-
-#pragma mark -
-#pragma mark Screen notifications
-
-- (void)screenConnect:(NSNotification *)notification
-{
-    [self updateFingertipsAreActive];
-}
-
-- (void)screenDisconnect:(NSNotification *)notification
-{
-    [self updateFingertipsAreActive];
-}
-
-- (BOOL)anyScreenIsMirrored
-{
-    if ( ! [UIScreen instancesRespondToSelector:@selector(mirroredScreen)])
-        return NO;
-
-    for (UIScreen *screen in [UIScreen screens])
-    {
-        if ([screen mirroredScreen] != nil)
-            return YES;
-    }
-
-    return NO;
-}
-
-- (void)updateFingertipsAreActive;
-{
-    if (self.alwaysShowTouches || ([[[[NSProcessInfo processInfo] environment] objectForKey:@"DEBUG_FINGERTIP_WINDOW"] boolValue]))
-    {
-        self.active = YES;
-    }
-    else
-    {
-        self.active = [self anyScreenIsMirrored];
-    }
-}
-
 #pragma mark -
 #pragma mark UIWindow overrides
 
 - (void)sendEvent:(UIEvent *)event
 {
-    if (self.active)
+    if (self.showTouches)
     {
         NSSet *allTouches = [event allTouches];
         
@@ -220,24 +120,26 @@
                 case UITouchPhaseMoved:
                 case UITouchPhaseStationary:
                 {
-                    MBFingerTipView *touchView = (MBFingerTipView *)[self.overlayWindow viewWithTag:touch.hash];
+                    MBFingerTipView *touchView = (MBFingerTipView *)[self.window viewWithTag:touch.hash];
 
                     if (touch.phase != UITouchPhaseStationary && touchView != nil && [touchView isFadingOut])
                     {
                         [touchView removeFromSuperview];
+                        [self.fingerTipViews removeObject:touchView];
                         touchView = nil;
                     }
                     
                     if (touchView == nil && touch.phase != UITouchPhaseStationary)
                     {
                         touchView = [[MBFingerTipView alloc] initWithImage:self.touchImage];
-                        [self.overlayWindow addSubview:touchView];
+                        [self.window addSubview:touchView];
+                        [self.fingerTipViews addObject:touchView];
                     }
             
                     if ( ! [touchView isFadingOut])
                     {
                         touchView.alpha = self.touchAlpha;
-                        touchView.center = [touch locationInView:self.overlayWindow];
+                        touchView.center = [touch locationInView:self.window];
                         touchView.tag = touch.hash;
                         touchView.timestamp = touch.timestamp;
                         touchView.shouldAutomaticallyRemoveAfterTimeout = [self shouldAutomaticallyRemoveFingerTipForTouch:touch];
@@ -285,7 +187,7 @@
     NSTimeInterval now = [[NSProcessInfo processInfo] systemUptime];
     const CGFloat REMOVAL_DELAY = 0.2;
 
-    for (MBFingerTipView *touchView in [self.overlayWindow subviews])
+    for (MBFingerTipView *touchView in self.fingerTipViews)
     {
         if ( ! [touchView isKindOfClass:[MBFingerTipView class]])
             continue;
@@ -294,13 +196,13 @@
             [self removeFingerTipWithHash:touchView.tag animated:YES];
     }
 
-    if ([[self.overlayWindow subviews] count] > 0)
+    if (self.fingerTipViews.count > 0)
         [self scheduleFingerTipRemoval];
 }
 
 - (void)removeFingerTipWithHash:(NSUInteger)hash animated:(BOOL)animated;
 {
-    MBFingerTipView *touchView = (MBFingerTipView *)[self.overlayWindow viewWithTag:hash];
+    MBFingerTipView *touchView = (MBFingerTipView *)[self.window viewWithTag:hash];
     if ( ! [touchView isKindOfClass:[MBFingerTipView class]])
         return;
     
@@ -330,7 +232,10 @@
     }
     
     touchView.fadingOut = YES;
-    [touchView performSelector:@selector(removeFromSuperview) withObject:nil afterDelay:self.fadeDuration];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(self.fadeDuration * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [touchView removeFromSuperview];
+        [self.fingerTipViews removeObject:touchView];
+    });
 }
 
 - (BOOL)shouldAutomaticallyRemoveFingerTipForTouch:(UITouch *)touch;
@@ -378,24 +283,5 @@
 #pragma mark -
 
 @implementation MBFingerTipView
-
-@end
-
-#pragma mark -
-
-@implementation MBFingerTipOverlayWindow
-
-// UIKit tries to get the rootViewController from the overlay window. Use the Fingertips window instead. This fixes
-// issues with status bar behavior, as otherwise the overlay window would control the status bar.
-
-- (UIViewController *)rootViewController
-{
-    NSPredicate *predicate = [NSPredicate predicateWithBlock:^BOOL(id evaluatedObject, NSDictionary *bindings)
-    {
-        return [evaluatedObject isKindOfClass:[MBFingerTipWindow class]];
-    }];
-    UIWindow *mainWindow = [[[[UIApplication sharedApplication] windows] filteredArrayUsingPredicate:predicate] firstObject];
-    return mainWindow.rootViewController ?: [super rootViewController];
-}
 
 @end

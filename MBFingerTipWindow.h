@@ -27,6 +27,6 @@
 @property (nonatomic, strong) UIColor *fillColor;
 
 /** Sets whether touches should always show regardless of whether the display is mirroring. Defaults to NO. */
-@property (nonatomic, assign) BOOL alwaysShowTouches;
+@property (nonatomic, assign) BOOL showTouches;
 
 @end
